@@ -159,6 +159,50 @@ echo 'memtier_benchmark ...' > /tmp/memtier_benchmark.txt \
 | `--key-minimum=1` / `--key-maximum=1000000` | Range of numeric IDs used to build key names (`memtier-<id>`) | Explicitly widened after noticing the *default* range on this lab's `memtier_benchmark` build behaved as if it were much smaller than the officially documented default (10,000,000) — see the note below |
 | *(omitted)* `-a` (`--authenticate`) | Password for `AUTH` | Deliberately omitted — `source-db` has no password |
 
+### Reading the `memtier_benchmark` report: what the percentiles mean
+
+A typical run prints a table like this:
+
+```
+ALL STATS
+============================================================================================================================
+Type         Ops/sec     Hits/sec   Misses/sec    Avg. Latency     p50 Latency     p99 Latency   p99.9 Latency       KB/sec
+----------------------------------------------------------------------------------------------------------------------------
+Sets        13783.64          ---          ---         1.44489         1.14300         6.20700        14.14300      1061.85
+Gets        13783.64        11.03     13772.61         1.43992         1.14300         6.27100        14.46300       537.29
+Waits           0.00          ---          ---             ---             ---             ---             ---          ---
+Totals      27567.27        11.03     13772.61         1.44241         1.14300         6.23900        14.33500      1599.14
+```
+
+**Latency percentiles** — a percentile `pXX` answers: *"XX% of requests
+completed at or below this latency."*
+
+- **p50** (median): 1.143 ms → half of all requests were faster than this.
+- **p99**: 6.239 ms → 99% of requests were faster than this — only the
+  slowest 1% took longer.
+- **p99.9**: 14.335 ms → 99.9% of requests were faster than this — only
+  1 request in 1000 (the *tail latency*) took longer.
+
+**Why percentiles matter more than the average**: the average here
+(1.442 ms) sits close to the median, but is pulled slightly upward by a
+small number of slow outliers. The gap between p50 (1.14 ms) and p99.9
+(14.3 ms) — roughly **12x** — shows that a small fraction of requests are
+much slower than "typical". At real-world scale (thousands of
+requests/sec), that "rare" 0.1% tail isn't a one-off — it happens
+continuously to *someone*. This is why, when evaluating a system's
+performance, **looking only at the average can hide real problems that
+percentiles reveal** (caused by things like GC pauses, lock contention,
+network jitter, etc.) — a point worth making explicitly in an interview.
+
+**Other columns**:
+- **Hits/sec / Misses/sec**: only meaningful for `Gets` (a `Sets` always
+  writes, so hit/miss doesn't apply — hence `---`). Consistent with what
+  we already know: the key range is far larger than the data written, so
+  almost every GET misses.
+- **Waits**: `0.00` because `--wait-ratio` (which exercises the Redis
+  `WAIT` command, used to check replica acknowledgment) wasn't used here.
+- **KB/sec**: throughput measured in data volume, not just operation count.
+
 ### A debugging detour worth documenting: why did `DBSIZE` stay fixed?
 
 While verifying the run (see §3 below), running the **exact same command
