@@ -1,6 +1,7 @@
 package com.redischallenge.exercise2.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
@@ -11,8 +12,16 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  *
  * Deliberately has no "module_list" field: omitting it means "no modules",
  * which is exactly what the exercise requires ("without using any modules").
+ *
+ * @JsonInclude(NON_NULL) is required for "uid": when creating a database,
+ * this DTO's uid field is null (the cluster assigns it), and without this
+ * annotation Jackson serializes it as an explicit "uid": null in the
+ * request body. The Database API rejects that with 400 Bad Request - a
+ * null uid is not the same as an absent one. Omitting the field entirely
+ * is what actually triggers auto-assignment, per the API reference.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class BdbDto {
 
     public Integer uid;

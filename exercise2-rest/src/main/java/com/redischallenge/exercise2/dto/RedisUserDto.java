@@ -1,6 +1,7 @@
 package com.redischallenge.exercise2.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 /**
  * Wire format for the Redis Enterprise "User object" (Users API), reduced
@@ -11,8 +12,14 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  * "role" (rather than "role_uids") is used because this cluster is not
  * RBAC-enabled: the Users API accepts a plain role name in that case
  * ("db_viewer" / "db_member" / "admin", exactly as given in the exercise).
+ *
+ * @JsonInclude(NON_NULL) omits null fields from the serialized request
+ * (in particular "uid", always null on create requests) instead of
+ * sending them as explicit JSON nulls - see BdbDto's Javadoc for why this
+ * matters to the Redis Enterprise REST API's request validation.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class RedisUserDto {
 
     public Integer uid;

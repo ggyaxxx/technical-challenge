@@ -29,6 +29,9 @@ narrow port interface.
 - `BdbDto` / `RedisUserDto` — minimal JSON request/response DTOs, limited
   to the fields this exercise reads or writes. `@JsonIgnoreProperties(ignoreUnknown = true)`
   makes them tolerant of the many additional fields the real API returns.
+  `@JsonInclude(NON_NULL)` omits fields that are `null` at request time
+  (in particular `uid`, which is always `null` on create requests)
+  instead of serializing them as an explicit JSON `null` — see section 2.
 - `Exercise2Workflow` — the business logic, with no dependency on
   Quarkus, HTTP, or JSON. It only depends on `ClusterApiGateway`.
 - `Exercise2Main` — the `@QuarkusMain` entry point, wiring the injected
@@ -54,6 +57,14 @@ The Database API request body is:
 There is no `module_list` field. Per the Database API reference, omitting
 `module_list` is precisely how a database with no modules is requested —
 there is no separate "disable modules" flag to set.
+
+There is also no `uid` field in the serialized request, even though
+`BdbDto` declares one. `uid` is assigned by the cluster and is `null` in
+Java before creation; without `@JsonInclude(NON_NULL)` on the DTO,
+Jackson would still serialize it as `"uid": null`. The Database API
+rejects a request body containing `"uid": null` with `400 Bad Request` —
+a null `uid` is not treated the same as an absent one. The same applies
+to `RedisUserDto` when creating users.
 
 ## 3. Users created
 
@@ -131,7 +142,23 @@ cluster.admin.password=${CLUSTER_ADMIN_PASSWORD}
   if either is missing, Quarkus fails at startup with a configuration
   error instead of sending a blank or malformed `Authorization` header.
 
-## 6. Build, test, run
+## 6. Error diagnostics
+
+By default, the MicroProfile REST Client throws a
+`ClientWebApplicationException` on any non-2xx response, whose message
+contains only the HTTP status line (e.g. `Bad Request, status code 400`).
+The Cluster Manager API returns a JSON body on errors with a machine
+`error_code` and a human-readable `description` (e.g.
+`missing_memory_size`, `invalid_role`, `uid_exists`); without reading it,
+the status line alone is not enough to determine what was wrong with the
+request.
+
+`RestClusterApiGateway.call(...)` wraps every REST client invocation,
+catches `WebApplicationException`, and re-throws a `RuntimeException`
+that includes the response body, so the actual `error_code`/`description`
+from the cluster reaches the console instead of only the status code.
+
+## 7. Build, test, run
 
 ### Build
 
