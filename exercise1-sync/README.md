@@ -347,6 +347,19 @@ single self-contained file, so the default layout was kept as-is (no
 
 ### Run
 
+`application.properties` already defaults to this lab's real `source-db`
+(`redis-10649.re-cluster1.ps-redislabs.org:10649`) and `replica-db`
+(`redis-16135.re-cluster1.ps-redislabs.org:16135`) endpoints, so it runs
+with no extra arguments:
+
+```bash
+java -jar target/quarkus-app/quarkus-run.jar
+```
+
+The `SOURCE_HOST`/`SOURCE_PORT`/`REPLICA_HOST`/`REPLICA_PORT` environment
+variables still work as overrides, e.g. if the endpoints ever change or
+to point at a different pair of databases without editing the file:
+
 ```bash
 SOURCE_HOST=<source-db-host>   SOURCE_PORT=<source-db-port> \
 REPLICA_HOST=<replica-db-host> REPLICA_PORT=<replica-db-port> \
