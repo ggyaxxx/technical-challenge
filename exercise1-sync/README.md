@@ -459,3 +459,27 @@ being typed.
   unstable-connection environment; the `/tmp/memtier_benchmark.txt` file
   (written proactively, on purpose, as part of the same one-shot command)
   is the actual reliable record, by design.
+
+### A benign Quarkus build warning: "Maven extensions ... are not enabled"
+
+On the very first `mvn package` after pulling the Quarkus-based code onto
+the IDE VM, the build printed:
+
+```
+[WARNING] The Maven extensions for the Quarkus Maven plugin are not enabled for this build. ...
+Please enable by adding "<extensions>true</extensions>" in your quarkus-maven-plugin declaration
+```
+
+even though `pom.xml` **already** has `<extensions>true</extensions>` on
+the `quarkus-maven-plugin` declaration. This is a known, harmless Quarkus
+quirk (see [quarkusio/quarkus#51990](https://github.com/quarkusio/quarkus/issues/51990)):
+that flag makes Maven load the plugin as a "build extension" so its three
+bound goals (`generate-code`, `generate-code-tests`, `build`) share one
+bootstrap/classloader — a pure efficiency optimization, registered via a
+session listener. On a **cold** build (plugin jar not yet cached in
+`~/.m2`), that listener sometimes doesn't finish registering in time for
+that same session, so the warning fires once even with correct config.
+Confirmed harmless: re-running `mvn package` a second time (plugin now
+cached) made the warning disappear, and even on the first run the build
+still finished with `BUILD SUCCESS` and a correct `target/quarkus-app/`.
+No functional impact either way.
