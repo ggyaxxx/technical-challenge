@@ -2,6 +2,7 @@ package com.redischallenge.exercise2;
 
 import com.redischallenge.exercise2.dto.BdbDto;
 import com.redischallenge.exercise2.dto.RedisUserDto;
+import com.redischallenge.exercise2.dto.RoleDto;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
@@ -52,4 +53,15 @@ public interface RestClusterApiClient {
     @Path("/users")
     @Produces(MediaType.APPLICATION_JSON)
     List<RedisUserDto> listUsers(@HeaderParam("Authorization") String authorization);
+
+    @GET
+    @Path("/roles")
+    @Produces(MediaType.APPLICATION_JSON)
+    List<RoleDto> listRoles(@HeaderParam("Authorization") String authorization);
+
+    @POST
+    @Path("/roles")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    RoleDto createRole(@HeaderParam("Authorization") String authorization, RoleDto request);
 }

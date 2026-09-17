@@ -2,6 +2,7 @@ package com.redischallenge.exercise2;
 
 import com.redischallenge.exercise2.dto.BdbDto;
 import com.redischallenge.exercise2.dto.RedisUserDto;
+import com.redischallenge.exercise2.dto.RoleDto;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.WebApplicationException;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -9,7 +10,9 @@ import org.eclipse.microprofile.rest.client.inject.RestClient;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 /**
@@ -27,6 +30,15 @@ public class RestClusterApiGateway implements ClusterApiGateway {
 
     private final RestClusterApiClient client;
     private final String authorizationHeader;
+
+    /**
+     * Cache of Role object uid -> management level (e.g. 1 -> "admin"),
+     * lazily populated from {@code GET /v1/roles} on first use. This
+     * gateway is @ApplicationScoped and this program performs a single
+     * run, so a plain lazily-initialized field (no eviction) is enough -
+     * see {@link #resolveRoleUid} and {@link #displayRole}.
+     */
+    private Map<Integer, String> managementByRoleUid;
 
     public RestClusterApiGateway(
             @RestClient RestClusterApiClient client,
@@ -54,16 +66,69 @@ public class RestClusterApiGateway implements ClusterApiGateway {
 
     @Override
     public int createUser(String email, String name, String password, String role) {
-        RedisUserDto created =
-                call(() -> client.createUser(authorizationHeader, new RedisUserDto(email, name, password, role)));
+        int roleUid = resolveRoleUid(role);
+        RedisUserDto created = call(
+                () -> client.createUser(authorizationHeader, new RedisUserDto(email, name, password, roleUid)));
         return created.uid;
     }
 
     @Override
     public List<UserView> listUsers() {
+        ensureRolesLoaded();
         return call(() -> client.listUsers(authorizationHeader)).stream()
-                .map(dto -> new UserView(dto.name, dto.role, dto.email))
+                .map(dto -> new UserView(dto.name, displayRole(dto), dto.email))
                 .toList();
+    }
+
+    /**
+     * Maps a desired management level (e.g. "db_viewer") to the uid of a
+     * matching Role object, creating that Role if none exists yet.
+     *
+     * This cluster has RBAC enabled ({@code GET /v1/roles} succeeds and
+     * returns Role objects), so the Users API's plain {@code role} string
+     * is rejected as a reference to a non-existing Role by that name
+     * (only "Admin" exists by default). Per the API reference, RBAC
+     * clusters require {@code role_uids} instead - see RedisUserDto's
+     * Javadoc. Since the exercise only names management levels
+     * ("db_viewer", "db_member", "admin"), not pre-existing Role uids, a
+     * Role with that name/management is created on demand.
+     */
+    private synchronized int resolveRoleUid(String management) {
+        ensureRolesLoaded();
+        for (Map.Entry<Integer, String> entry : managementByRoleUid.entrySet()) {
+            if (entry.getValue().equals(management)) {
+                return entry.getKey();
+            }
+        }
+        RoleDto created = call(() -> client.createRole(authorizationHeader, new RoleDto(management, management)));
+        managementByRoleUid.put(created.uid, created.management);
+        return created.uid;
+    }
+
+    private synchronized void ensureRolesLoaded() {
+        if (managementByRoleUid == null) {
+            managementByRoleUid = new HashMap<>();
+            for (RoleDto role : call(() -> client.listRoles(authorizationHeader))) {
+                managementByRoleUid.put(role.uid, role.management);
+            }
+        }
+    }
+
+    /**
+     * Displays a user's role as a management-level string. RBAC-enabled
+     * clusters return {@code role_uids} instead of {@code role} (per the
+     * Users API reference), so the first role uid is resolved back to its
+     * management level through the same cache used by
+     * {@link #resolveRoleUid}.
+     */
+    private String displayRole(RedisUserDto dto) {
+        if (dto.role != null) {
+            return dto.role;
+        }
+        if (dto.roleUids != null && !dto.roleUids.isEmpty()) {
+            return managementByRoleUid.getOrDefault(dto.roleUids.get(0), "unknown");
+        }
+        return "none";
     }
 
     /**

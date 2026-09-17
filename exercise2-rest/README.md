@@ -76,11 +76,32 @@ Exactly the three users specified by the exercise:
 | mike.smith@example.com | Mike Smith | db_member |
 | cary.johnson@example.com | Cary Johnson | admin |
 
-`role` (a plain string) is used rather than `role_uids`, which the Users
-API reference documents as the alternative for RBAC-enabled clusters.
-This cluster is not configured for RBAC, so a role name is the correct
-field, and it matches the plain role names given in the exercise text
-(`db_viewer`, `db_member`, `admin`).
+### RBAC and role resolution
+
+This cluster has RBAC enabled: `GET /v1/roles` succeeds and returns Role
+objects (confirmed by inspection — only a built-in `Admin` role, uid 1,
+exists by default). On an RBAC-enabled cluster, the Users API's plain
+`role` string field is not a fixed enum; it is resolved against existing
+Role object names, and only `Admin` matches. Sending `"role": "db_viewer"`
+is therefore rejected with `400 Bad Request` /
+`{"error_code":"invalid_param","description":"Trying to associate with a
+non-existing role"}`, since no Role named `db_viewer` exists.
+
+Per the Users API reference, RBAC-enabled clusters must use `role_uids`
+(an array of Role object uids) instead of `role`. Since the exercise
+specifies management levels (`db_viewer`, `db_member`, `admin`) rather
+than pre-existing Role uids, `RestClusterApiGateway.resolveRoleUid`:
+
+1. Fetches all roles (`GET /v1/roles`) and looks for one whose
+   `management` field matches the requested level.
+2. If none exists, creates it (`POST /v1/roles` with
+   `{"name": "<level>", "management": "<level>"}`) and uses the uid from
+   the response.
+
+The resulting uid is sent as `role_uids: [<uid>]` on the user creation
+request. `listUsers()` reverses the same mapping to display a readable
+role name, since RBAC-enabled clusters return `role_uids` instead of
+`role` in the response body.
 
 ### Passwords
 
