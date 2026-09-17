@@ -483,3 +483,25 @@ Confirmed harmless: re-running `mvn package` a second time (plugin now
 cached) made the warning disappear, and even on the first run the build
 still finished with `BUILD SUCCESS` and a correct `target/quarkus-app/`.
 No functional impact either way.
+
+### `mvn quarkus:dev` fails on the lab VM ("Detected Maven Version ... is not supported")
+
+```
+[ERROR] Failed to execute goal io.quarkus.platform:quarkus-maven-plugin:3.33.3:dev
+(default-cli) on project exercise1-sync: Detected Maven Version (3.6.3) is not
+supported, it must be in [3.9.8,).
+```
+
+The lab VM's Maven is **3.6.3**; Quarkus 3.33's **dev mode** specifically
+requires **Maven ≥ 3.9.8** (a newer dependency resolver needed for
+live-reload). This check (`MavenVersionEnforcer`) is only wired into the
+`dev` goal (`DevMojo`), **not** into `build`/`package` — which is exactly
+why `mvn package` succeeds fine on this same Maven install while
+`mvn quarkus:dev` doesn't.
+
+Not a problem for this exercise: it's a one-shot "command mode" batch
+program run against real `source-db`/`replica-db` instances, not an
+app iteratively developed against a live dev service — so dev mode
+(meant for hot-reload during local development) isn't part of the
+workflow here. `mvn package` + `java -jar target/quarkus-app/quarkus-run.jar`
+(§4 above) is the supported, working path on this VM as-is.
