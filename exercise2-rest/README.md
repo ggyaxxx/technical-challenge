@@ -1,0 +1,178 @@
+# Exercise 2 — Working with Redis REST API
+
+## 0. Scope
+
+This exercise uses the Redis Enterprise Cluster Manager REST API
+(`https://re-cluster1.ps-redislabs.org:9443/v1/...`), not the Redis data
+protocol used in Exercise 1. The program:
+
+1. Creates a new database without modules (Database API).
+2. Creates three users with specific email/name/role combinations (Users API).
+3. Lists all users and displays them as name, role, email (Users API).
+4. Deletes the database created in step 1 (Database API).
+
+## 1. Architecture
+
+Same pattern as `exercise1-sync`: a Quarkus command-mode application, with
+the business workflow kept independent of the HTTP client through a
+narrow port interface.
+
+- `ClusterApiGateway` — port interface exposing exactly the four Cluster
+  Manager operations this exercise needs (`createDatabase`,
+  `deleteDatabase`, `createUser`, `listUsers`).
+- `RestClusterApiClient` — declarative MicroProfile REST Client interface
+  (`quarkus-rest-client-jackson`) mapping directly to
+  `POST/DELETE /v1/bdbs` and `GET/POST /v1/users`.
+- `RestClusterApiGateway` — adapter implementing `ClusterApiGateway` on
+  top of `RestClusterApiClient`; also builds the HTTP Basic
+  `Authorization` header from the configured cluster admin credentials.
+- `BdbDto` / `RedisUserDto` — minimal JSON request/response DTOs, limited
+  to the fields this exercise reads or writes. `@JsonIgnoreProperties(ignoreUnknown = true)`
+  makes them tolerant of the many additional fields the real API returns.
+- `Exercise2Workflow` — the business logic, with no dependency on
+  Quarkus, HTTP, or JSON. It only depends on `ClusterApiGateway`.
+- `Exercise2Main` — the `@QuarkusMain` entry point, wiring the injected
+  `ClusterApiGateway` into `Exercise2Workflow` and driving the four steps.
+
+This mirrors `exercise1-sync`'s `RedisSortedSetGateway` /
+`QuarkusRedisSortedSetGateway` / `SortedSetNumberRepository` split: the
+workflow is unit-testable with a mocked gateway, with no network calls
+and no dependency on the concrete REST client.
+
+## 2. Database creation without modules
+
+The Database API request body is:
+
+```json
+{
+    "name": "exercise2-db",
+    "type": "redis",
+    "memory_size": 104857600
+}
+```
+
+There is no `module_list` field. Per the Database API reference, omitting
+`module_list` is precisely how a database with no modules is requested —
+there is no separate "disable modules" flag to set.
+
+## 3. Users created
+
+Exactly the three users specified by the exercise:
+
+| Email | Name | Role |
+|---|---|---|
+| john.doe@example.com | John Doe | db_viewer |
+| mike.smith@example.com | Mike Smith | db_member |
+| cary.johnson@example.com | Cary Johnson | admin |
+
+`role` (a plain string) is used rather than `role_uids`, which the Users
+API reference documents as the alternative for RBAC-enabled clusters.
+This cluster is not configured for RBAC, so a role name is the correct
+field, and it matches the plain role names given in the exercise text
+(`db_viewer`, `db_member`, `admin`).
+
+### Passwords
+
+The Users API requires a non-empty `password` field on every create
+request; the exercise text does not specify one. `Exercise2Workflow`
+generates a fresh random password per user with `SecureRandom`, and does
+not log or persist it. A fixed, hard-coded password was deliberately
+avoided, since it would otherwise need to be committed to source control.
+This is acceptable for these disposable lab users; it would not be an
+appropriate approach for provisioning real accounts.
+
+## 4. Listing users
+
+`GET /v1/users` returns each user's full object (uid, email, name, role,
+role_uids, email_alerts, auth_method, ...). `RestClusterApiGateway` maps
+each entry to a `UserView(name, role, email)` record, matching the
+"name, role, and email" display format requested by the exercise.
+Example output:
+
+```
+Name: John Doe        Role: db_viewer  Email: john.doe@example.com
+Name: Mike Smith      Role: db_member  Email: mike.smith@example.com
+Name: Cary Johnson    Role: admin      Email: cary.johnson@example.com
+```
+
+## 5. Configuration
+
+`src/main/resources/application.properties`:
+
+```properties
+quarkus.rest-client.cluster-api.url=${CLUSTER_API_URL:https://re-cluster1.ps-redislabs.org:9443}
+
+quarkus.tls.cluster-api-tls.trust-all=true
+quarkus.tls.cluster-api-tls.hostname-verification-algorithm=NONE
+quarkus.rest-client.cluster-api.tls-configuration-name=cluster-api-tls
+
+cluster.admin.email=${CLUSTER_ADMIN_EMAIL}
+cluster.admin.password=${CLUSTER_ADMIN_PASSWORD}
+```
+
+- **`CLUSTER_API_URL`**: overrides the base URL. Defaults to the hostname
+  given in the exercise text; substitute the cluster's IP address here if
+  the hostname does not resolve from wherever this runs (this is a
+  documented, real issue in this lab — see `exercise1-sync/README.md`,
+  Redis Insight connectivity).
+- **TLS trust settings**: the cluster's REST API is served over HTTPS
+  with a self-signed certificate. `quarkus.tls.cluster-api-tls.trust-all=true`
+  and `hostname-verification-algorithm=NONE` disable certificate and
+  hostname validation for this named TLS configuration, which is then
+  attached to the `cluster-api` REST client via `tls-configuration-name`.
+  This is acceptable only for this lab exercise, never for a production
+  endpoint.
+- **`CLUSTER_ADMIN_EMAIL` / `CLUSTER_ADMIN_PASSWORD`**: cluster admin
+  credentials, used to build the HTTP Basic `Authorization` header on
+  every request. Unlike `exercise1-sync`'s unauthenticated Redis
+  endpoints, these are real administrative credentials, so no default
+  value is provided in `application.properties`, and they are not
+  committed to source control. Both are required environment variables;
+  if either is missing, Quarkus fails at startup with a configuration
+  error instead of sending a blank or malformed `Authorization` header.
+
+## 6. Build, test, run
+
+### Build
+
+```bash
+mvn -q package
+```
+
+### Tests (TDD)
+
+`Exercise2WorkflowTest` was written before `Exercise2Workflow`, mocking
+only `ClusterApiGateway`. It asserts:
+- the Database API is called with no modules, using the expected name
+  and memory size, and the returned uid is propagated;
+- the Users API is called exactly three times, with the exact
+  email/name/role combinations from the exercise text (the password
+  value itself is not asserted, since the exercise does not specify one,
+  only that each of the three calls receives a distinct generated value);
+- `listUsers()` / `deleteDatabase()` delegate to the gateway unchanged.
+
+```bash
+mvn -q test
+```
+
+### Run
+
+```bash
+CLUSTER_ADMIN_EMAIL=admin@rl.org CLUSTER_ADMIN_PASSWORD=<secure-ui-password> \
+java -jar target/quarkus-app/quarkus-run.jar
+```
+
+Expected output:
+
+```
+Creating database 'exercise2-db' (no modules) ...
+Database created, uid=<n>
+Creating the three required users ...
+Users created.
+Listing all users:
+Name: John Doe        Role: db_viewer  Email: john.doe@example.com
+Name: Mike Smith      Role: db_member  Email: mike.smith@example.com
+Name: Cary Johnson    Role: admin      Email: cary.johnson@example.com
+Deleting database uid=<n> ...
+Database deleted.
+```
