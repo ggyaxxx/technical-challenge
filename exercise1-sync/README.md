@@ -111,8 +111,8 @@ performance numbers themselves aren't the point.
 
 ### Command actually run, and how to reach it
 
-Access path: bastion (`term`/`***REDACTED***`) → `su` → `su labuser` → `ssh load`.
-Then, on the `load` node:
+Access path: bastion (credentials provided separately, not reproduced here)
+→ `su` → `su labuser` → `ssh load`. Then, on the `load` node:
 
 ```bash
 memtier_benchmark -s redis-10649.re-cluster1.ps-redislabs.org -p 10649 \
