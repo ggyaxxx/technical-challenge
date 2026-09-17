@@ -272,30 +272,94 @@ replication is supposed to.
 
 ## 4. The Java program
 
+### Why Quarkus, and why "command mode"
+
+The program is a **Quarkus application**, not a plain `main()` with hand
+managed dependencies. Reasoning:
+
+- Quarkus gives CDI (dependency injection), externalized configuration
+  (`application.properties`, with environment-variable overrides), and a
+  managed Redis client **for free**, without pulling in a web server —
+  none of that is needed here, so none of it is added (deliberately
+  **no** `quarkus-rest`/`quarkus-resteasy` dependency).
+- **Command mode** (`@QuarkusMain` + `implements QuarkusApplication`) is
+  the official Quarkus way to write a CLI-style app: Quarkus boots its
+  container, calls `run(String... args)` once, then shuts everything
+  down and the JVM exits with the returned status code. See
+  https://quarkus.io/guides/command-mode-reference.
+- This is the same pattern reused for Exercises 2 and 3, for consistency:
+  one Quarkus "command mode" module per exercise, configuration in
+  `application.properties`, business logic kept in plain, framework-free
+  classes wherever possible (see "Design" below).
+- **Version pinned to Quarkus 3.33 (the current LTS line)**, not the
+  newest 3.39/4.x, because the lab's VS Code IDE runs **Java 17** and
+  Quarkus 4 raises its minimum Java version to 21. Quarkus 3.x fully
+  supports Java 17.
+
+### Redis client: `quarkus-redis-client`
+
+Jedis (used in the first draft) was replaced with the **official,
+upstream Quarkus Redis extension** (`io.quarkus:quarkus-redis-client`,
+built on the Vert.x Redis client). Key points, useful to explain out loud:
+
+- **Two named clients**, one per database, declared purely in
+  `application.properties`:
+  ```properties
+  quarkus.redis.source.hosts=redis://${SOURCE_HOST:127.0.0.1}:${SOURCE_PORT:6379}
+  quarkus.redis.replica.hosts=redis://${REPLICA_HOST:127.0.0.1}:${REPLICA_PORT:6379}
+  ```
+  Quarkus's configuration layer (SmallRye Config) resolves the
+  `${SOURCE_HOST:127.0.0.1}` syntax against environment variables at
+  startup — same `SOURCE_HOST`/`SOURCE_PORT`/`REPLICA_HOST`/`REPLICA_PORT`
+  variables as before, just declared in config instead of read manually
+  with `System.getenv(...)` in Java.
+- Each named client is injected with the `@RedisClientName` qualifier:
+  ```java
+  @Inject @RedisClientName("source")  RedisDataSource source;
+  @Inject @RedisClientName("replica") RedisDataSource replica;
+  ```
+- `RedisDataSource` is the **blocking**, typed API (there's also a
+  `ReactiveRedisDataSource` — not needed for this simple, sequential
+  exercise). Sorted-set commands are obtained via
+  `redis.sortedSet(String.class)`, which returns a `SortedSetCommands`
+  with typed `zadd(...)` / `zrange(...)` methods.
+- **No `ZREVRANGE` method exists** in this typed API — Quarkus models it
+  as `ZRANGE` plus the `REV` option: `zrange(key, start, stop, new
+  ZRangeArgs().rev())`. Same single native Redis command under the hood
+  (`ZRANGE ... REV`, available since Redis 6.2), just expressed
+  differently in the Java API. Worth knowing this if asked "where's
+  ZREVRANGE?" in an interview.
+
 ### Build
 
 ```bash
 mvn -q package
 ```
 
-Produces `target/exercise1-sync-jar-with-dependencies.jar` (self-contained,
-no need for Maven/internet on the machine that runs it).
+Quarkus's own Maven plugin performs build-time "augmentation" during
+`package` and produces a **`target/quarkus-app/`** directory (not a
+single jar) containing `quarkus-run.jar`, `lib/`, and `app/`. This is the
+standard, recommended Quarkus layout ("fast-jar") — since the code is now
+delivered via `git clone` directly onto the machine that runs it (see the
+git workflow discussed earlier), there's no need to shuttle around a
+single self-contained file, so the default layout was kept as-is (no
+`quarkus.package.jar.type=uber-jar` override).
 
 ### Run
 
 ```bash
 SOURCE_HOST=<source-db-host>   SOURCE_PORT=<source-db-port> \
 REPLICA_HOST=<replica-db-host> REPLICA_PORT=<replica-db-port> \
-java -jar target/exercise1-sync-jar-with-dependencies.jar
+java -jar target/quarkus-app/quarkus-run.jar
 ```
 
 Expected output:
 
 ```
-Connecting to source-db at <host>:<port> ...
+Connecting to source-db ...
 Inserting values 1..100 into source-db (Sorted Set 'numbers') ...
 Done.
-Connecting to replica-db at <host>:<port> ...
+Connecting to replica-db ...
 Values read back from replica-db, in reverse order:
 [100, 99, 98, ..., 2, 1]
 ```
@@ -303,27 +367,38 @@ Values read back from replica-db, in reverse order:
 ### Design
 
 - `NumberRepository` — the contract: insert a range, read it back reversed.
-- `RedisSortedSetGateway` — a narrow port exposing only `ZADD`/`ZREVRANGE`,
-  the two Redis commands the exercise actually needs. It exists so unit
-  tests never have to mock Jedis' large `UnifiedJedis` class directly
-  (best practice: don't mock types you don't own — and on some JVMs Jedis'
-  class hierarchy simply can't be mocked at all).
-- `JedisSortedSetGateway` — a 1:1 adapter from that port to real Jedis calls.
-- `SortedSetNumberRepository` — the actual logic: `ZADD key <value> <value>`
-  for each number (1..100), `ZREVRANGE key 0 -1` to read back reversed.
-- `Exercise1App` — wires everything together against `source-db` and
-  `replica-db`, using `SOURCE_HOST`/`SOURCE_PORT`/`REPLICA_HOST`/`REPLICA_PORT`
-  env vars for the connection details.
+  Plain interface, no Quarkus/Redis-client types in its signature.
+- `RedisSortedSetGateway` — a narrow port exposing only `ZADD`/`ZREVRANGE`
+  (the two Redis operations the exercise actually needs), independent of
+  whichever Redis client sits behind it. It exists so unit tests never
+  have to mock a large third-party client class directly (best practice:
+  don't mock types you don't own).
+- `QuarkusRedisSortedSetGateway` — a 1:1 adapter from that port to
+  `quarkus-redis-client`'s `RedisDataSource`/`SortedSetCommands`.
+- `SortedSetNumberRepository` — the actual logic: `ZADD key <value>
+  <value>` for each number (1..100), `ZRANGE key 0 -1 REV` to read back
+  reversed. **Completely unaware of Quarkus** — it only depends on the
+  `RedisSortedSetGateway` port, which is exactly why swapping the
+  underlying Redis client (Jedis → `quarkus-redis-client`) required
+  **zero changes** to this class or to its tests.
+- `Exercise1Main` — the `@QuarkusMain` entry point: injects the two named
+  `RedisDataSource`s (`source`, `replica`), wires them into two
+  `SortedSetNumberRepository` instances, and drives the exercise.
 
 ### Tests (TDD)
 
-`SortedSetNumberRepositoryTest` was written **before** the implementation:
-it describes, with a mocked `RedisSortedSetGateway`, exactly which Redis
-commands must be issued and how results must be parsed. Run with:
+`SortedSetNumberRepositoryTest` was written **before** the implementation
+and mocks only `RedisSortedSetGateway` — never Quarkus, never a real
+Redis client. It describes exactly which Redis commands must be issued
+and how results must be parsed. Run with:
 
 ```bash
 mvn -q test
 ```
+
+This test suite required **no changes at all** when the Redis client was
+swapped from Jedis to `quarkus-redis-client` — direct proof that the
+port/adapter split paid off.
 
 ## 5. Alternate Redis structures considered
 
