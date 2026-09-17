@@ -2,8 +2,8 @@
 
 ## 0. Key concepts (theory)
 
-This section explains the Redis Enterprise concepts behind every choice
-made below — useful to justify each step out loud (e.g. in an interview).
+This section documents the Redis Enterprise concepts underlying the
+design decisions made in the rest of this document.
 
 ### What is a "database" (BDB) in Redis Enterprise?
 
@@ -31,8 +31,7 @@ partitioning, the simplest possible topology.
 "Memory eviction" feature tag means an eviction policy is active
 (default `volatile-lru`): if memory fills up, Redis would first discard
 keys **that have a TTL set**, least-recently-used first. None of the keys
-in this exercise have a TTL, so eviction never actually triggers — but
-it's worth knowing what the setting does.
+in this exercise have a TTL, so eviction never actually triggers.
 
 ### Access method: Unauthenticated access
 
@@ -57,19 +56,19 @@ This is the core mechanism of the exercise:
   Redis refuses writes on a database that is "Replica Of" another one,
   exactly like a master/replica pair in vanilla Redis.
 
-**Important distinction** (easy to confuse):
+**Distinction from a related setting:**
 - The **"High Availability → Replication"** setting shown in the DB form
   (left as `Off` here) is a *different* concept: it's about a single
   BDB's *internal* HA (a master shard + a replica shard for automatic
-  failover if a node dies). We didn't need it for this exercise.
+  failover if a node dies). It is not required for this exercise.
 - **"Replica Of"** links **two distinct BDBs** together (even across
   clusters, or even from a non-Enterprise Redis) purely for
-  cross-database synchronization. This is the feature Exercise 1 asks for.
+  cross-database synchronization. This is the feature Exercise 1 requires.
 
-Real-world use cases for "Replica Of" worth mentioning: zero-downtime
-migration between clusters/environments, active-passive disaster
-recovery, geo-distributed read scaling, or keeping a test environment's
-dataset continuously mirrored from production.
+Typical use cases for "Replica Of" include zero-downtime migration
+between clusters/environments, active-passive disaster recovery,
+geo-distributed read scaling, and keeping a test environment's dataset
+continuously mirrored from production.
 
 ## 1. Create `source-db` and `replica-db` (Secure UI)
 
@@ -192,7 +191,7 @@ requests/sec), that "rare" 0.1% tail isn't a one-off — it happens
 continuously to *someone*. This is why, when evaluating a system's
 performance, **looking only at the average can hide real problems that
 percentiles reveal** (caused by things like GC pauses, lock contention,
-network jitter, etc.) — a point worth making explicitly in an interview.
+network jitter, etc.).
 
 **Other columns**:
 - **Hits/sec / Misses/sec**: only meaningful for `Gets` (a `Sets` always
@@ -203,7 +202,7 @@ network jitter, etc.) — a point worth making explicitly in an interview.
   `WAIT` command, used to check replica acknowledgment) wasn't used here.
 - **KB/sec**: throughput measured in data volume, not just operation count.
 
-### A debugging detour worth documenting: why did `DBSIZE` stay fixed?
+### Investigating an unexpected `DBSIZE` value
 
 While verifying the run (see §3 below), running the **exact same command
 twice** produced the **exact same `DBSIZE` (5000)** both times, and a third
@@ -217,15 +216,14 @@ documented default (10,000,000) — likely close to 5,000. With 200,000 SET
 attempts against only ~5,000 possible key IDs, essentially *every* key
 gets hit at least once (a "coupon collector" saturation), so the result
 is deterministic — which is exactly why two identical runs produced an
-identical `DBSIZE`. This didn't block the exercise (data was populated,
-and replication was verified either way, see below), but it's a good
-example of **not trusting documented defaults blindly** and instead
-verifying actual behaviour empirically against the specific binary in the
-lab.
+identical `DBSIZE`. This did not affect the exercise outcome (data was
+populated and replication was verified regardless, see below), and
+illustrates the importance of verifying actual tool behavior empirically
+rather than relying on documented defaults.
 
 ## 3. Verifying the replication actually works
 
-### Don't trust the dashboard gauge alone
+### Dashboard metrics are not sufficient evidence
 
 After running `memtier_benchmark`, the Secure UI's "Memory used" gauge
 showed very different values for `source-db` (~16.7 MB) and `replica-db`
@@ -264,11 +262,11 @@ that "Replica Of" isn't just doing a one-time initial sync — it's
 continuously streaming every subsequent write, exactly as Redis
 replication is supposed to.
 
-### Lesson worth repeating in an interview
+### Verification methodology
 
-> "Dashboards can lag or aggregate data; whenever I need to *prove*
-> correctness, I go straight to a direct command against the data itself
-> (`DBSIZE`, `INFO replication`, etc.) instead of relying on a UI metric."
+Dashboard metrics can lag or aggregate data. Verifying data correctness
+should rely on direct commands against the data itself (`DBSIZE`,
+`INFO replication`, etc.) rather than on UI metrics.
 
 ## 4. The Java program
 
@@ -300,7 +298,7 @@ managed dependencies. Reasoning:
 
 Jedis (used in the first draft) was replaced with the **official,
 upstream Quarkus Redis extension** (`io.quarkus:quarkus-redis-client`,
-built on the Vert.x Redis client). Key points, useful to explain out loud:
+built on the Vert.x Redis client). Key characteristics:
 
 - **Two named clients**, one per database, declared purely in
   `application.properties`:
@@ -325,10 +323,9 @@ built on the Vert.x Redis client). Key points, useful to explain out loud:
   with typed `zadd(...)` / `zrange(...)` methods.
 - **No `ZREVRANGE` method exists** in this typed API — Quarkus models it
   as `ZRANGE` plus the `REV` option: `zrange(key, start, stop, new
-  ZRangeArgs().rev())`. Same single native Redis command under the hood
-  (`ZRANGE ... REV`, available since Redis 6.2), just expressed
-  differently in the Java API. Worth knowing this if asked "where's
-  ZREVRANGE?" in an interview.
+  ZRangeArgs().rev())`. This is the same single native Redis command
+  under the hood (`ZRANGE ... REV`, available since Redis 6.2), just
+  expressed differently in the Java API.
 
 ### Build
 
@@ -432,89 +429,3 @@ order" is a single, native, fully Redis-supported command
 implement. That matches the rule we set for this challenge: every solution
 should be fully supported by Redis itself, not by extra logic bolted on
 around it.
-
-## 6. Operational notes (lessons learned working in this lab)
-
-Worth mentioning even though they're not strict exercise requirements —
-they show real troubleshooting, which is exactly what a PS/consulting
-role involves.
-
-### The web terminal (Wetty) kept disconnecting every ~30 seconds
-
-Symptom: the browser-based terminal to the bastion dropped the
-connection roughly every 30 seconds, killing the shell (and its
-in-memory `history`) each time — regardless of whether anything was
-being typed.
-
-- **Likely cause**: a fixed idle/keepalive timeout somewhere in the
-  infrastructure in front of Wetty (many cloud HTTP(S) load balancers
-  default to a 30-second backend timeout for long-lived/websocket
-  connections unless explicitly tuned). Not something fixable from the
-  browser side.
-- **Workaround adopted**: instead of fighting the disconnect, make
-  individual commands **survive** it:
-  - Chain the "save the command to a file" step and the actual benchmark
-    launch into **one pasted line**, so both happen even if the next
-    disconnect is only a second away.
-  - Use `nohup ... > logfile 2>&1 & disown` to detach the long-running
-    process from the controlling shell/terminal entirely — once
-    launched, it keeps running on the remote host independent of the
-    browser session, and its output can be read back after reconnecting.
-  - (If `tmux`/`screen` had been available on the `load` node, that would
-    have been the more general solution — a persistent remote session
-    you simply re-attach to after a disconnect. Neither was installed
-    here, so `nohup`/`disown` was the pragmatic fallback for this
-    specific, non-interactive command.)
-- **Side effect noticed**: because the shell kept dying before bash could
-  flush its history to `~/.bash_history`, the very first `memtier_benchmark`
-  command run was "lost" from `history` — a good reminder that
-  interactive shell history is not a reliable audit trail in an
-  unstable-connection environment; the `/tmp/memtier_benchmark.txt` file
-  (written proactively, on purpose, as part of the same one-shot command)
-  is the actual reliable record, by design.
-
-### A benign Quarkus build warning: "Maven extensions ... are not enabled"
-
-On the very first `mvn package` after pulling the Quarkus-based code onto
-the IDE VM, the build printed:
-
-```
-[WARNING] The Maven extensions for the Quarkus Maven plugin are not enabled for this build. ...
-Please enable by adding "<extensions>true</extensions>" in your quarkus-maven-plugin declaration
-```
-
-even though `pom.xml` **already** has `<extensions>true</extensions>` on
-the `quarkus-maven-plugin` declaration. This is a known, harmless Quarkus
-quirk (see [quarkusio/quarkus#51990](https://github.com/quarkusio/quarkus/issues/51990)):
-that flag makes Maven load the plugin as a "build extension" so its three
-bound goals (`generate-code`, `generate-code-tests`, `build`) share one
-bootstrap/classloader — a pure efficiency optimization, registered via a
-session listener. On a **cold** build (plugin jar not yet cached in
-`~/.m2`), that listener sometimes doesn't finish registering in time for
-that same session, so the warning fires once even with correct config.
-Confirmed harmless: re-running `mvn package` a second time (plugin now
-cached) made the warning disappear, and even on the first run the build
-still finished with `BUILD SUCCESS` and a correct `target/quarkus-app/`.
-No functional impact either way.
-
-### `mvn quarkus:dev` fails on the lab VM ("Detected Maven Version ... is not supported")
-
-```
-[ERROR] Failed to execute goal io.quarkus.platform:quarkus-maven-plugin:3.33.3:dev
-(default-cli) on project exercise1-sync: Detected Maven Version (3.6.3) is not
-supported, it must be in [3.9.8,).
-```
-
-The lab VM's Maven is **3.6.3**; Quarkus 3.33's **dev mode** specifically
-requires **Maven ≥ 3.9.8** (a newer dependency resolver needed for
-live-reload). This check (`MavenVersionEnforcer`) is only wired into the
-`dev` goal (`DevMojo`), **not** into `build`/`package` — which is exactly
-why `mvn package` succeeds fine on this same Maven install while
-`mvn quarkus:dev` doesn't.
-
-Not a problem for this exercise: it's a one-shot "command mode" batch
-program run against real `source-db`/`replica-db` instances, not an
-app iteratively developed against a live dev service — so dev mode
-(meant for hot-reload during local development) isn't part of the
-workflow here. `mvn package` + `java -jar target/quarkus-app/quarkus-run.jar`
-(§4 above) is the supported, working path on this VM as-is.
