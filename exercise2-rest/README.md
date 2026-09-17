@@ -179,7 +179,32 @@ catches `WebApplicationException`, and re-throws a `RuntimeException`
 that includes the response body, so the actual `error_code`/`description`
 from the cluster reaches the console instead of only the status code.
 
-## 7. Build, test, run
+## 7. Cleanup on failure
+
+The database created in step 1 counts against the cluster's shard
+license until it is deleted in step 4. If a step in between throws (for
+example, user creation failing), a program that only calls
+`deleteDatabase` at the very end never reaches it, leaving the database
+behind — it keeps consuming license capacity indefinitely.
+
+This is not a hypothetical: while diagnosing the `role`/`role_uids`
+issue in section 3, two failed runs each left an orphaned `exercise2-db`
+behind. Both were 1-shard databases (the minimum possible), but this
+lab cluster's trial license permits only 4 shards total, and the two
+pre-provisioned `exercise1-sync` databases already used the other 2 —
+so the leaked databases alone exhausted the entire license, and any
+further database creation failed with `invalid_param` /
+"Total shards count exceeds amount of total shards permitted by
+license", regardless of the size requested.
+
+`Exercise2Main` now wraps steps 2–3 in a `try`/`catch`: if either step
+fails, it attempts `deleteDatabase(databaseUid)` before re-throwing the
+original failure, so the database does not outlive a failed run. A
+cleanup failure inside that `catch` block is logged as a warning rather
+than replacing the original exception, so the real root cause of the
+failure is never masked by a secondary cleanup error.
+
+## 8. Build, test, run
 
 ### Build
 
