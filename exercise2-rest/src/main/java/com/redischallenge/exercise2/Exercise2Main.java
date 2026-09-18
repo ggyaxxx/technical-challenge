@@ -15,15 +15,25 @@ import jakarta.inject.Inject;
  *   2. Create the three users specified by the exercise (Users API).
  *   3. List and display all users in "name, role, email" format (Users API).
  *   4. Delete the database created in step 1 (Database API).
+ *
+ * Step 4 is skipped, both here and in the failure-cleanup path, when the
+ * program is run with the {@code --no-delete-db} argument - see
+ * {@link #NO_DELETE_DB_FLAG}. This is a debugging aid only, for manually
+ * inspecting the created database (e.g. in the Cluster Manager UI or
+ * with redis-cli) before removing it by hand; it is not needed for the
+ * exercise itself, which always deletes the database.
  */
 @QuarkusMain
 public class Exercise2Main implements QuarkusApplication {
+
+    private static final String NO_DELETE_DB_FLAG = "--no-delete-db";
 
     @Inject
     ClusterApiGateway cluster;
 
     @Override
     public int run(String... args) {
+        boolean deleteDb = !hasFlag(args, NO_DELETE_DB_FLAG);
         Exercise2Workflow workflow = new Exercise2Workflow(cluster);
 
         System.out.println("Creating database '" + Exercise2Workflow.NEW_DATABASE_NAME + "' (no modules) ...");
@@ -48,21 +58,42 @@ public class Exercise2Main implements QuarkusApplication {
             // two earlier failed runs each left an orphaned "exercise2-db"
             // BDB, and a fourth database (regardless of size) then exceeded
             // the cluster's 4-shard license limit.
-            System.err.println("Step failed after the database was created; attempting cleanup ...");
-            try {
-                workflow.deleteDatabase(databaseUid);
-                System.err.println("Database uid=" + databaseUid + " deleted after failure.");
-            } catch (RuntimeException cleanupFailure) {
-                System.err.println("Warning: cleanup itself failed, database uid=" + databaseUid
-                        + " was NOT deleted and must be removed manually: " + cleanupFailure.getMessage());
+            if (deleteDb) {
+                System.err.println("Step failed after the database was created; attempting cleanup ...");
+                try {
+                    workflow.deleteDatabase(databaseUid);
+                    System.err.println("Database uid=" + databaseUid + " deleted after failure.");
+                } catch (RuntimeException cleanupFailure) {
+                    System.err.println("Warning: cleanup itself failed, database uid=" + databaseUid
+                            + " was NOT deleted and must be removed manually: " + cleanupFailure.getMessage());
+                }
+            } else {
+                System.err.println(NO_DELETE_DB_FLAG + ": leaving database uid=" + databaseUid
+                        + " on the cluster despite the failure above; delete it manually when done inspecting it.");
             }
             throw failure;
         }
 
-        System.out.println("Deleting database uid=" + databaseUid + " ...");
-        workflow.deleteDatabase(databaseUid);
-        System.out.println("Database deleted.");
+        if (deleteDb) {
+            System.out.println("Deleting database uid=" + databaseUid + " ...");
+            workflow.deleteDatabase(databaseUid);
+            System.out.println("Database deleted.");
+        } else {
+            System.out.println(NO_DELETE_DB_FLAG + ": leaving database uid=" + databaseUid
+                    + " on the cluster for inspection; delete it manually when done, e.g.:");
+            System.out.println("  curl -sk -u \"<admin-email>:<admin-password>\" -X DELETE "
+                    + "https://<cluster-host>:9443/v1/bdbs/" + databaseUid);
+        }
 
         return 0;
+    }
+
+    private static boolean hasFlag(String[] args, String flag) {
+        for (String arg : args) {
+            if (flag.equals(arg)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

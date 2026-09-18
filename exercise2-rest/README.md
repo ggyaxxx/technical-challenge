@@ -289,3 +289,23 @@ Name: Cary Johnson    Role: admin      Email: cary.johnson@example.com
 Deleting database uid=<n> ...
 Database deleted.
 ```
+
+### Inspecting the database before it is deleted
+
+```bash
+CLUSTER_ADMIN_EMAIL=admin@rl.org CLUSTER_ADMIN_PASSWORD=<secure-ui-password> \
+java -jar target/quarkus-app/quarkus-run.jar --no-delete-db
+```
+
+`--no-delete-db` is a command-line argument to `Exercise2Main`, checked
+directly against the `args` array `run(String... args)` already
+receives — it needs no extra library or configuration property. With
+it, step 4 (and the failure-cleanup delete in section 7) is skipped, so
+the database created in step 1 is left on the cluster instead of being
+removed at the end. This is a debugging aid, for confirming the database
+was created as expected (e.g. in the Cluster Manager UI, or with
+`redis-cli -h <host> -p <port>` against it), and is not needed for the
+exercise itself, which always deletes the database it creates.
+
+The program prints the exact `curl ... DELETE /v1/bdbs/<uid>` command to
+remove it manually afterward, using the actual `uid` from that run.
