@@ -15,6 +15,8 @@ their own logic testable behind a narrow interface to the real client,
 rather than mocking a type this project does not own.
 """
 
+from __future__ import annotations
+
 import os
 
 from redisvl.extensions.router import SemanticRouter
