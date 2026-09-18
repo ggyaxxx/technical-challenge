@@ -152,6 +152,13 @@ weather query in the demo set, section 4).
   arguments or a small built-in demo set (one query per route, plus one
   deliberately unrelated query), and prints one route name per line.
 
+### `redisvl` version
+
+Pinned to `0.17.1`, the last release supporting Python 3.9 (`0.18.0`
+and later require Python ≥3.10; the lab environment's Python is 3.9).
+`SemanticRouter`/`Route` have the same API in `0.17.1`, so nothing in
+this project's own code depends on the newer release.
+
 ### Vectorizer
 
 `HFTextVectorizer` with `sentence-transformers/all-MiniLM-L6-v2`

@@ -1,5 +1,8 @@
 # Runtime
-redisvl==0.27.2
+# Pinned to 0.17.1: the last redisvl release supporting Python 3.9
+# (0.18.0+ requires Python >=3.10). The SemanticRouter/Route API used
+# here is identical in 0.17.1.
+redisvl==0.17.1
 sentence-transformers>=3,<4
 
 # Tests
