@@ -204,6 +204,24 @@ cleanup failure inside that `catch` block is logged as a warning rather
 than replacing the original exception, so the real root cause of the
 failure is never masked by a secondary cleanup error.
 
+### Retrying a delete against a busy database
+
+`DELETE /v1/bdbs/{uid}` can respond `409 Conflict` /
+`{"error_code":"db_busy"}` when called immediately after the database
+was created and written to, while the cluster is still finishing shard
+provisioning for it. This is exactly the sequence this exercise
+performs (create, populate with users, delete), so it is expected to be
+hit occasionally rather than being a request error.
+
+`RestClusterApiGateway.callWithRetryOnConflict` is used only for
+`deleteDatabase`: on `409`, it waits 2 seconds and retries, up to 5
+attempts, before giving up and reporting the failure as usual. It is
+not applied to `createDatabase`, `createUser`, or `createRole`, since
+those are `POST` requests — blindly retrying a `POST` after an
+ambiguous failure risks creating a duplicate resource, whereas `DELETE`
+is naturally idempotent (deleting an already-deleted or not-yet-fully-up
+resource has no additional side effect beyond the retry itself).
+
 ## 8. Build, test, run
 
 ### Build

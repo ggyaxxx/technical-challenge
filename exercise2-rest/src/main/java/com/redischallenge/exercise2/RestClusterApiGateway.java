@@ -58,7 +58,7 @@ public class RestClusterApiGateway implements ClusterApiGateway {
 
     @Override
     public void deleteDatabase(int uid) {
-        call(() -> {
+        callWithRetryOnConflict(() -> {
             client.deleteDatabase(authorizationHeader, uid);
             return null;
         });
@@ -147,6 +147,51 @@ public class RestClusterApiGateway implements ClusterApiGateway {
             String body = e.getResponse().readEntity(String.class);
             throw new RuntimeException(
                     "Cluster Manager API call failed: HTTP " + e.getResponse().getStatus() + " - " + body, e);
+        }
+    }
+
+    private static final int DELETE_MAX_ATTEMPTS = 5;
+    private static final long DELETE_RETRY_DELAY_MS = 2000;
+
+    /**
+     * Like {@link #call}, but retries a fixed number of times, with a
+     * fixed delay, when the response is {@code 409 Conflict}.
+     *
+     * A database created and then immediately deleted (as this exercise
+     * does) can briefly be in a "busy" state on the cluster side while
+     * its shards finish provisioning: {@code DELETE /v1/bdbs/{uid}}
+     * responds with {@code 409} / {@code {"error_code":"db_busy"}} until
+     * that settles. This is a transient condition specific to a
+     * delete-right-after-create sequence, not a request error, so it is
+     * retried here instead of being surfaced through {@link #call}, which
+     * is for reporting genuine, non-retryable request errors.
+     */
+    private <T> T callWithRetryOnConflict(Supplier<T> request) {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return request.get();
+            } catch (WebApplicationException e) {
+                String body = e.getResponse().readEntity(String.class);
+                boolean conflict = e.getResponse().getStatus() == 409;
+                if (!conflict || attempt >= DELETE_MAX_ATTEMPTS) {
+                    throw new RuntimeException(
+                            "Cluster Manager API call failed: HTTP " + e.getResponse().getStatus() + " - " + body,
+                            e);
+                }
+                System.out.println("Database busy, retrying delete in "
+                        + (DELETE_RETRY_DELAY_MS / 1000) + "s (attempt " + attempt + "/" + DELETE_MAX_ATTEMPTS
+                        + ") ...");
+                sleep(DELETE_RETRY_DELAY_MS);
+            }
+        }
+    }
+
+    private void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while waiting to retry a busy database delete", interrupted);
         }
     }
 }
