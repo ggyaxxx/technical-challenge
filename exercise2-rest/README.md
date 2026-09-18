@@ -309,3 +309,73 @@ exercise itself, which always deletes the database it creates.
 
 The program prints the exact `curl ... DELETE /v1/bdbs/<uid>` command to
 remove it manually afterward, using the actual `uid` from that run.
+
+## 9. Useful `curl` commands for manual verification
+
+These query the same three Cluster Manager API resources this program
+uses (`/v1/bdbs`, `/v1/users`, `/v1/roles`), independently of the Java
+code — useful for confirming what the program did, or for diagnosing a
+failure by hand. Credentials are read from the shell environment, not
+written here, for the same reason `application.properties` does not
+default them (section 5).
+
+```bash
+export CLUSTER_ADMIN_EMAIL=admin@rl.org
+export CLUSTER_ADMIN_PASSWORD=<secure-ui-password>
+export CLUSTER_HOST=re-cluster1.ps-redislabs.org
+```
+
+### Databases
+
+```bash
+curl -sk -u "$CLUSTER_ADMIN_EMAIL:$CLUSTER_ADMIN_PASSWORD" \
+  "https://$CLUSTER_HOST:9443/v1/bdbs" \
+  | python3 -c "
+import json, sys
+for b in json.load(sys.stdin):
+    print(b['uid'], b['name'], 'shards_count=' + str(b.get('shards_count')),
+          'replication=' + str(b.get('replication')))
+"
+```
+
+### Users
+
+```bash
+curl -sk -u "$CLUSTER_ADMIN_EMAIL:$CLUSTER_ADMIN_PASSWORD" \
+  "https://$CLUSTER_HOST:9443/v1/users" \
+  | python3 -c "
+import json, sys
+for u in json.load(sys.stdin):
+    print(u['uid'], u['name'], u['email'], 'role=' + str(u.get('role')),
+          'role_uids=' + str(u.get('role_uids')))
+"
+```
+
+### Roles
+
+```bash
+curl -sk -u "$CLUSTER_ADMIN_EMAIL:$CLUSTER_ADMIN_PASSWORD" \
+  "https://$CLUSTER_HOST:9443/v1/roles" \
+  | python3 -c "
+import json, sys
+for r in json.load(sys.stdin):
+    print(r['uid'], r['name'], 'management=' + str(r.get('management')))
+"
+```
+
+### Full JSON, unfiltered
+
+Replace `/v1/bdbs` with `/v1/users` or `/v1/roles` as needed, for the
+complete object (all fields the API returns, not just the ones above):
+
+```bash
+curl -sk -u "$CLUSTER_ADMIN_EMAIL:$CLUSTER_ADMIN_PASSWORD" \
+  "https://$CLUSTER_HOST:9443/v1/bdbs" | python3 -m json.tool
+```
+
+### Deleting a specific resource
+
+```bash
+curl -sk -u "$CLUSTER_ADMIN_EMAIL:$CLUSTER_ADMIN_PASSWORD" \
+  -X DELETE "https://$CLUSTER_HOST:9443/v1/bdbs/<uid>"
+```
