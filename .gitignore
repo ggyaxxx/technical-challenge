@@ -3,3 +3,9 @@ target/
 .idea/
 *.iml
 .vscode/
+
+# Python (exercise3-router)
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
