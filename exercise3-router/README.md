@@ -41,6 +41,16 @@ API, `POST /v1/bdbs`.
   Unlike Exercise 2, where the whole point was a database *without*
   modules, this one specifically needs the Search and Query module, so
   `module_list` is populated instead of omitted.
+- RedisJSON enabled too (`{"module_name": "ReJSON"}`), even though the
+  exercise text only asks for "search and query": `SemanticRouter`
+  persists its own routing configuration with a raw `JSON.SET` call
+  (`redisvl.extensions.router.semantic.SemanticRouter.__init__` calls
+  `self._index.client.json().set(...)`), not only vector search. A
+  database created with `search` alone fails at router construction
+  with `redis.exceptions.ResponseError: unknown command 'JSON.SET'`.
+  Every field in `module_list` also requires a non-empty JSON object,
+  so each entry needs `"module_args": ""` even when there are no
+  arguments to pass - omitting it fails with `invalid_schema`.
 - Unauthenticated access, "for simplicity, as in the previous
   challenges": no `authentication_redis_pass` is set, matching
   `source-db`/`replica-db`/`exercise2-db`.
@@ -72,7 +82,10 @@ curl -sk -u "$CLUSTER_ADMIN_EMAIL:$CLUSTER_ADMIN_PASSWORD" \
         "type": "redis",
         "memory_size": 104857600,
         "shards_count": 1,
-        "module_list": [{"module_name": "search"}]
+        "module_list": [
+          {"module_name": "search", "module_args": ""},
+          {"module_name": "ReJSON", "module_args": ""}
+        ]
       }' \
   | python3 -m json.tool
 ```
