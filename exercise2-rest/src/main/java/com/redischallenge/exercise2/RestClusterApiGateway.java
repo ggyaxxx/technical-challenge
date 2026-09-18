@@ -13,6 +13,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
@@ -64,12 +65,45 @@ public class RestClusterApiGateway implements ClusterApiGateway {
         });
     }
 
+    /**
+     * Creates a user, or reuses the existing one if a user with that email
+     * already exists.
+     *
+     * Unlike the database created in this exercise, users are not deleted
+     * at the end of the run (the exercise only asks for the database to be
+     * cleaned up), so they persist on the cluster across runs. Users API
+     * emails are unique cluster-wide, so re-running this program a second
+     * time - the normal way to exercise a "create resources" script - hit
+     * {@code 400} / {@code email_already_exists} for all three users on
+     * every run after the first. Since the desired end state ("these three
+     * users exist, with these roles") is the same either way, an existing
+     * user is treated as success rather than a failure, making the whole
+     * program safe to run repeatedly.
+     */
     @Override
     public int createUser(String email, String name, String password, String role) {
         int roleUid = resolveRoleUid(role);
-        RedisUserDto created = call(
-                () -> client.createUser(authorizationHeader, new RedisUserDto(email, name, password, roleUid)));
-        return created.uid;
+        try {
+            RedisUserDto created = call(
+                    () -> client.createUser(authorizationHeader, new RedisUserDto(email, name, password, roleUid)));
+            return created.uid;
+        } catch (RuntimeException creationFailure) {
+            if (!isEmailAlreadyExists(creationFailure)) {
+                throw creationFailure;
+            }
+            return findUserUidByEmail(email).orElseThrow(() -> creationFailure);
+        }
+    }
+
+    private boolean isEmailAlreadyExists(RuntimeException e) {
+        return e.getMessage() != null && e.getMessage().contains("email_already_exist");
+    }
+
+    private Optional<Integer> findUserUidByEmail(String email) {
+        return call(() -> client.listUsers(authorizationHeader)).stream()
+                .filter(dto -> email.equals(dto.email))
+                .map(dto -> dto.uid)
+                .findFirst();
     }
 
     @Override

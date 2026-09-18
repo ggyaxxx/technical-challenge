@@ -222,6 +222,28 @@ ambiguous failure risks creating a duplicate resource, whereas `DELETE`
 is naturally idempotent (deleting an already-deleted or not-yet-fully-up
 resource has no additional side effect beyond the retry itself).
 
+### Re-running the program: user creation is idempotent
+
+The database created in step 1 is deleted in step 4 (or by the failure
+cleanup in section 7), so it never outlives one run. The three users
+created in step 2 are not deleted anywhere, by design — the exercise
+only asks for the database to be cleaned up — so they persist on the
+cluster across runs, and the Users API rejects a duplicate email with
+`400` / `email_already_exists`. Running the program a second time is
+the ordinary way to exercise a "create these resources" script, so
+without handling this, every run after the first would fail at the
+same point.
+
+`RestClusterApiGateway.createUser` treats `email_already_exists`
+specifically as success: it looks up the existing user by email via
+`GET /v1/users` and returns that user's `uid` instead of propagating
+the error. Any other failure from the create call is not treated this
+way and is still reported as a genuine error. `resolveRoleUid` already
+had the same property from the start (section 3): it looks for an
+existing Role with the desired `management` level before creating one,
+so re-running the program does not attempt to create duplicate roles
+either.
+
 ## 8. Build, test, run
 
 ### Build
