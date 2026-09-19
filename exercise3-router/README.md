@@ -256,11 +256,15 @@ this project's own code depends on the newer release.
 
 ### Vectorizer
 
-`HFTextVectorizer` with `sentence-transformers/all-MiniLM-L6-v2`
-(384-dimensional embeddings) — a local, offline model, so no API key
-or external embedding service is required (the exercise's "no modules"
-lab environment does not have one configured). It is smaller and
-faster to download than RedisVL's own default
+`SemanticRouter` is used with `HFTextVectorizer` — RedisVL's own
+vectorizer class, not a replacement for it: `HFTextVectorizer` wraps
+whichever `sentence-transformers` model it is given (RedisVL does not
+bundle a fixed one). The model given here is
+`sentence-transformers/all-MiniLM-L6-v2` (384-dimensional embeddings)
+— a local, offline model, so no API key or external embedding service
+is required (the exercise's "no modules" lab environment does not have
+one configured). It is smaller and faster to download than the model
+RedisVL's own examples typically default to
 (`sentence-transformers/all-mpnet-base-v2`, ~420MB vs. ~90MB), and its
 retrieval quality is more than sufficient to separate three topics as
 distinct as these.

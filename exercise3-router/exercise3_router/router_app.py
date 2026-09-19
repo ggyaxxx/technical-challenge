@@ -26,8 +26,11 @@ from exercise3_router.routes import ALL_ROUTES
 
 ROUTER_NAME = "exercise3-topic-router"
 
-# A smaller, faster-to-download alternative to RedisVL's own default
-# (sentence-transformers/all-mpnet-base-v2, ~420MB): its retrieval
+# HFTextVectorizer (below) is RedisVL's own vectorizer class, wrapping
+# whichever sentence-transformers model it is given; RedisVL does not
+# ship a hardcoded model. This one is smaller and faster to download
+# than the model RedisVL's own examples typically default to
+# (sentence-transformers/all-mpnet-base-v2, ~420MB); its retrieval
 # quality is more than sufficient for three topics as semantically
 # distinct as these - see README.md for the full reasoning.
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
