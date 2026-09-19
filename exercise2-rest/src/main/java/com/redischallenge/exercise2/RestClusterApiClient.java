@@ -39,6 +39,11 @@ public interface RestClusterApiClient {
     @Produces(MediaType.APPLICATION_JSON)
     BdbDto createDatabase(@HeaderParam("Authorization") String authorization, BdbDto request);
 
+    @GET
+    @Path("/bdbs")
+    @Produces(MediaType.APPLICATION_JSON)
+    List<BdbDto> listDatabases(@HeaderParam("Authorization") String authorization);
+
     @DELETE
     @Path("/bdbs/{uid}")
     void deleteDatabase(@HeaderParam("Authorization") String authorization, @PathParam("uid") int uid);

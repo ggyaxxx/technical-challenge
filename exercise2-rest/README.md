@@ -204,6 +204,28 @@ cleanup failure inside that `catch` block is logged as a warning rather
 than replacing the original exception, so the real root cause of the
 failure is never masked by a secondary cleanup error.
 
+### Database creation is also idempotent
+
+The cleanup above only covers failures *during* a single run — it does
+not help if a database from an earlier run is still around when the
+program is started again (for example, a run started with
+`--no-delete-db`, or one that crashed hard enough to skip the `catch`
+block entirely, e.g. the process being killed). Since
+`createDatabase()` always issued `POST /v1/bdbs` unconditionally, each
+such re-run created one more orphaned `exercise2-db`, silently
+consuming another shard of the license every time — the same failure
+mode as section 3's `email_already_exist`, but for the database
+instead of the users.
+
+`RestClusterApiGateway.createDatabase` now looks the name up first via
+`GET /v1/bdbs` and reuses the existing uid if a database with that name
+is already present, only calling `POST /v1/bdbs` when none exists. This
+mirrors `createUser`'s idempotency (section on cleanup aside, both
+follow "look up by the natural key first, create only on a miss"), and
+means re-running this program never creates more than one
+`exercise2-db`, regardless of how many times it has failed or been
+interrupted before.
+
 ### Retrying a delete against a busy database
 
 `DELETE /v1/bdbs/{uid}` can respond `409 Conflict` /

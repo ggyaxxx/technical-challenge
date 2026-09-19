@@ -51,10 +51,34 @@ public class RestClusterApiGateway implements ClusterApiGateway {
                 + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * Creates a database, or reuses the existing one if a database with
+     * this name already exists.
+     *
+     * On a shard-limited trial cluster (this lab's cluster caps total
+     * shards across all databases), blindly creating a new database on
+     * every run eventually exhausts that capacity with orphans left behind
+     * by earlier runs that failed before reaching {@link #deleteDatabase}
+     * (or were started with {@code --no-delete-db}) - see
+     * exercise2-rest/README.md, "Total shards count exceeds...". Looking
+     * the name up first and reusing it, the same idempotency strategy
+     * already used for {@link #createUser}, means re-running this program
+     * never creates more than one {@value Exercise2Workflow#NEW_DATABASE_NAME}.
+     */
     @Override
     public int createDatabase(String name, long memorySizeBytes) {
-        BdbDto created = call(() -> client.createDatabase(authorizationHeader, new BdbDto(name, memorySizeBytes)));
-        return created.uid;
+        return findDatabaseUidByName(name).orElseGet(() -> {
+            BdbDto created = call(
+                    () -> client.createDatabase(authorizationHeader, new BdbDto(name, memorySizeBytes)));
+            return created.uid;
+        });
+    }
+
+    private Optional<Integer> findDatabaseUidByName(String name) {
+        return call(() -> client.listDatabases(authorizationHeader)).stream()
+                .filter(dto -> name.equals(dto.name))
+                .map(dto -> dto.uid)
+                .findFirst();
     }
 
     @Override

@@ -19,7 +19,13 @@ public interface ClusterApiGateway {
      * Database API - POST /v1/bdbs. Creates a database with the given name
      * and memory limit, without specifying any module_list (no modules).
      *
-     * @return the uid assigned by the cluster to the new database.
+     * Idempotent: if a database with this name already exists (e.g. left
+     * over from a previous run that failed before its cleanup step, or was
+     * started with --no-delete-db), its existing uid is returned instead of
+     * creating a duplicate - see RestClusterApiGateway for why this matters
+     * on a shard-limited trial cluster.
+     *
+     * @return the uid of the (possibly pre-existing) database.
      */
     int createDatabase(String name, long memorySizeBytes);
 
