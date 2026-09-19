@@ -28,6 +28,38 @@ reading its implementation (`redisvl.extensions.router.semantic`), not
 just its public API — useful for explaining *why* it behaves the way
 it does, not only *how* to call it.
 
+### In plain terms, before the detail below
+
+A computer cannot tell that "What's a good Beethoven symphony?" and
+"Can you recommend a Mozart piano concerto?" are both about classical
+music just by comparing words — they share none. What it *can* do is
+turn each sentence into a list of numbers (384 of them, here) such
+that sentences with similar meaning produce similar-looking lists of
+numbers, and unrelated sentences produce very different ones. That
+list of numbers is an **embedding**, and "similar-looking" is
+measured with plain arithmetic (cosine distance, below) — no
+understanding of English required by Redis itself.
+
+Producing that list of numbers from a sentence requires a neural
+network that has already been trained on huge amounts of text to do
+exactly this — training one from scratch is far outside this
+exercise's scope, so a ready-made one is downloaded instead:
+`sentence-transformers/all-MiniLM-L6-v2`, a small (~90 MB) public
+model from [Hugging Face](https://huggingface.co). "Downloading a
+model" here means fetching that neural network's trained parameters
+(pure data, cached locally after the first run) — separate from `pip
+install`ing `redisvl`/`sentence-transformers` themselves, which only
+installs the *code* able to run that network. It runs entirely on the
+local CPU, so no external API key is needed (unlike RedisVL's
+OpenAI/Cohere-backed vectorizer options).
+
+Concretely, in this project: every one of the 18 reference sentences
+in `routes.py` is turned into an embedding once, up front, and stored
+in Redis (section 1); every incoming query is turned into an embedding
+with that same model at query time, and Redis finds which stored
+embeddings it is closest to. Everything below is the precise mechanics
+of that "closest to" step.
+
 ### Embeddings and vector distance
 
 An embedding is a fixed-length vector of floating-point numbers
