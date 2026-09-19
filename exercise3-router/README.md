@@ -201,8 +201,30 @@ hard-coded into the code) must point at the database created in
 section 1:
 
 ```bash
-export REDIS_URL="redis://<host>:<port>"
+export REDIS_URL="redis://redis-14808.re-cluster1.ps-redislabs.org:14808"
 ```
+
+The exact host/port were confirmed with the same endpoint-inspection
+`curl` shown in section 1, and can change if the database is deleted
+and recreated (Redis Enterprise can reassign a different proxy port to
+a new database). If this URL stops responding, re-check the current
+one:
+
+```bash
+curl -sk -u "$CLUSTER_ADMIN_EMAIL:$CLUSTER_ADMIN_PASSWORD" \
+  "https://$CLUSTER_HOST:9443/v1/bdbs/21" \
+  | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for e in d.get('endpoints', []):
+    print('dns_name:', e.get('dns_name'), 'port:', e.get('port'))
+"
+```
+
+If the hostname does not resolve from the machine running this
+program, the exercise text explicitly allows falling back to the raw
+IP address from the same `endpoints[].addr` field, e.g.
+`redis://172.16.22.23:14808`.
 
 ## 6. Build, test, run
 
@@ -211,6 +233,30 @@ export REDIS_URL="redis://<host>:<port>"
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
+pip install -r requirements.txt
+```
+
+#### Setup on a Python 3.9 machine without `sudo`
+
+The lab VM has Python 3.9 without the Debian `python3-venv` package
+(needed for `ensurepip`), and no `sudo` to install it. Two independent
+workarounds combine to make the block above work anyway:
+
+- **`redisvl` is pinned to `0.17.1`** in `requirements.txt` — the last
+  release supporting Python 3.9 (`0.18.0`+ requires ≥3.10); its
+  `SemanticRouter`/`Route` API is identical to the one used here.
+- **`venv` created without `pip`, then `pip` bootstrapped manually**,
+  bypassing the missing `python3-venv` package entirely:
+
+```bash
+python3 -m venv --without-pip .venv
+curl -sS https://bootstrap.pypa.io/pip/3.9/get-pip.py -o /tmp/get-pip.py
+.venv/bin/python3 /tmp/get-pip.py
+. .venv/bin/activate
+pip install --upgrade pip -q
+# CPU-only torch first, to avoid pulling several GB of unused CUDA
+# packages that sentence-transformers would otherwise resolve to.
+pip install torch --index-url https://download.pytorch.org/whl/cpu -q
 pip install -r requirements.txt
 ```
 
