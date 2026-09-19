@@ -21,6 +21,88 @@ complete library exists for Java; reimplementing index creation and
 KNN queries by hand would add real complexity without changing what is
 being demonstrated.
 
+## Key concepts: how Semantic Routing works (theory)
+
+This section documents the mechanism behind `SemanticRouter`, based on
+reading its implementation (`redisvl.extensions.router.semantic`), not
+just its public API — useful for explaining *why* it behaves the way
+it does, not only *how* to call it.
+
+### Embeddings and vector distance
+
+An embedding is a fixed-length vector of floating-point numbers
+produced by a model (here, `all-MiniLM-L6-v2`: 384 numbers) such that
+texts with similar meaning end up as vectors that are close together
+in that 384-dimensional space, and unrelated texts end up far apart.
+"Close" is measured here with **cosine distance** (`0` = identical
+direction, `2` = opposite direction; RedisVL's `distance_threshold` is
+on this scale). This is what makes routing work on *meaning* rather
+than shared keywords: "What's a good Beethoven symphony?" and "Can you
+recommend a Mozart piano concerto?" share no words, but land close
+together because both are about classical music.
+
+### What building the router actually stores
+
+`SemanticRouter.__init__` embeds every `reference` string from every
+`Route` and writes each one as a separate record into a Redis index
+(`FT.CREATE`), with three fields: `route_name` (tag), `reference`
+(text, unused by routing itself), and a `vector` field — indexed with
+a **`FLAT`** algorithm (brute-force, exact nearest-neighbor - not the
+approximate `HNSW` used for large-scale search) and **`COSINE`**
+distance. `FLAT` is appropriate here because a router's whole index is
+only a few dozen reference vectors (18, in this project), not millions
+of documents — exhaustive search is cheap enough that there is nothing
+to trade accuracy for.
+
+### What happens on each `router(query)` call
+
+This is a single `FT.AGGREGATE` request built by RedisVL, not a
+sequence of separate lookups:
+
+1. **Embed the query** with the same vectorizer used at build time (a
+   query and a reference are only comparable if produced by the same
+   model).
+2. **Vector range query**: fetch every *reference* whose distance to
+   the query vector is below a threshold — since Redis's range query
+   takes a single distance value, RedisVL uses the **largest**
+   `distance_threshold` among all routes here as a first, coarse pass
+   (all three routes use `0.5`, so this has no effect in this project,
+   but would matter with routes having different thresholds).
+3. **`GROUP BY route_name`, aggregating `distance`** across every
+   reference of that route that passed step 2. The aggregation
+   function defaults to **`avg`** (used here, unchanged) — meaning a
+   route's overall distance is the *average* of its matching
+   references' distances, not just its single closest reference. This
+   is why several *varied* references per route (a question, a
+   recommendation request, a specific work's name - see `routes.py`)
+   are more robust than one: a route with one reference very close to
+   the query but the rest far away scores worse under `avg` than a
+   route where several references are moderately close.
+4. **Filter by each route's *own* `distance_threshold`**: after
+   aggregation, RedisVL applies a second filter,
+   `(route_name == 'X' && distance < threshold_X) || ...`, one clause
+   per route — this is what actually enforces each route's threshold;
+   step 2's max-threshold range query was only ever a pre-filter to
+   narrow down candidates before aggregation.
+5. **Sort by distance ascending, keep the top 1** (`RoutingConfig.max_k`,
+   default `1`) — the single best-scoring route that survived step 4.
+6. If no route survived (every candidate's aggregated distance exceeded
+   its own threshold, or step 2 found nothing at all within the widest
+   threshold), the aggregation returns no rows, and `router(query)`
+   returns a `RouteMatch(name=None, distance=None)` — never `None`
+   itself, and never an exception. This is exactly the `NO_MATCH` case
+   `classify()` handles (see `router_app.py`).
+
+### Why this generalizes better than keyword matching
+
+A keyword/regex router would need to anticipate every way a user might
+phrase a request ("Beethoven", "symphony", "classical", "orchestra", …
+for just one topic). Embedding-based routing instead only needs a
+handful of *representative* phrasings per topic; anything semantically
+similar - different wording, synonyms, even a different language the
+embedding model was trained on - lands close to those same reference
+vectors without being explicitly listed.
+
 ## 1. The database
 
 RedisVL's `SemanticRouter` needs a Redis database with Search and
