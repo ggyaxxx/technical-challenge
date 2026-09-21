@@ -34,7 +34,7 @@ java -jar target/quarkus-app/quarkus-run.jar
 ```bash
 cd exercise2-rest
 mvn -q package
-CLUSTER_ADMIN_EMAIL=admin@rl.org CLUSTER_ADMIN_PASSWORD=<cluster-admin-password> \
+CLUSTER_ADMIN_EMAIL=<cluster-admin-email> CLUSTER_ADMIN_PASSWORD=<cluster-admin-password> \
 java -jar target/quarkus-app/quarkus-run.jar
 ```
 
