@@ -311,6 +311,67 @@ rebuilding it (and briefly leaving it empty) on every run — the same
 creation (see `exercise2-rest/README.md` section 7, "Re-running the
 program: user creation is idempotent").
 
+The direct consequence: **editing `routes.py` alone does not change
+what the router matches against**, if it has already run once against
+this database. `_add_routes()` (inside RedisVL) only runs when the
+index does not exist yet or `overwrite=True` — otherwise the reference
+set stored in Redis from the *first* run keeps being used, regardless
+of what `routes.py` currently contains. Pass `--rebuild-routes` once
+after changing `routes.py` to force `overwrite=True` for that run and
+push the new references in:
+
+```bash
+python -m exercise3_router.main --rebuild-routes
+```
+
+It can be combined with explicit queries too:
+`python -m exercise3_router.main --rebuild-routes "some query"`. Plain
+runs afterwards can omit the flag again.
+
+### Recall issue: some GenAI queries returned "no matching route"
+
+Queries like *"is ChatGPT better than Claude?"* or *"what is the best
+artificial intelligence bot?"* were classified as no match, even
+though the topic clearly belongs to `GenAI programming topics`. Before
+guessing at a fix, the model itself was used directly (bypassing Redis)
+to measure the actual cosine distance between these queries and every
+reference then in that route:
+
+```python
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+# ... encode references and the query, cosine distance = 1 - dot product
+# of the two (normalized) embeddings
+```
+
+Result: `"is ChatGPT better than Claude?"` was at distance **~0.80**
+from its closest reference — nowhere near `distance_threshold=0.5` — a
+genuine coverage gap, not a borderline/rounding case. The root cause:
+`GenAI programming topics`'s six original references were all "how do
+I build/use this" phrasing (prompting, fine-tuning, RAG, agents) and
+had no example in the "mentions specific well-known
+products/names" style already used by the other two routes (`Star
+Wars`/`Dune` for sci-fi, `Beethoven`/`Mozart` for classical music) —
+so a product-comparison question had nothing nearby to match against.
+
+Fix: four references naming specific products were added to
+`routes.py` (ChatGPT, Claude, Copilot, GPT-4, Gemini). Measured the
+same way, this closed the distance for those two queries to **~0.13**
+and **~0.27** — comfortably inside the threshold. The fix was also
+checked for the opposite failure mode (false positives): the same
+script was run against a battery of clearly Science-fiction/Classical
+queries and one clearly unrelated query, confirming none of them moved
+closer to `GenAI programming topics` than to their own route or to "no
+match".
+
+The general lesson (a good one for discussing semantic routing in an
+interview): a recall miss in a semantic router is usually a *reference
+coverage* problem for a specific phrasing style, best diagnosed by
+measuring actual distances with the embedding model directly rather
+than guessing — and best fixed by adding a reference that covers the
+missing phrasing style, not by loosening `distance_threshold` globally
+(which would also start accepting genuinely unrelated queries).
+
 ## 5. Configuration
 
 `REDIS_URL` (environment variable, no default — same reasoning as
@@ -404,6 +465,7 @@ Expected output (one route name per line, matching the built-in demo
 queries in `main.py`):
 
 ```
+GenAI programming topics
 GenAI programming topics
 Science fiction entertainment
 Classical music

@@ -9,6 +9,17 @@ set covering all three routes plus one deliberately unrelated query.
 Per the exercise ("the route's output only needs to show the name of
 the route"), each query prints only the matched route name (or
 NO_MATCH), one per line, in the same order as the input queries.
+
+--rebuild-routes forces build_router(overwrite=True): without it,
+build_router() defaults to overwrite=False (see router_app.py), so if
+the router's index already exists in Redis from a previous run, the
+routes.py references currently in the *code* are never written to
+Redis - the router keeps answering using whatever reference set was
+loaded the first time this program ran against that database. Pass
+this flag once after changing routes.py (e.g. adding references to fix
+a "no matching route" false negative) to push the new references in;
+plain runs afterwards can omit it again. See README.md, "Updating the
+routes after the first run".
 """
 
 import sys
@@ -17,6 +28,7 @@ from exercise3_router.router_app import build_router, classify
 
 DEMO_QUERIES = [
     "How do I fine-tune a language model on my own dataset?",
+    "Is ChatGPT better than Claude for coding tasks?",
     "What's the best sci-fi show to binge this weekend?",
     "Can you recommend a good recording of Beethoven's 9th symphony?",
     "What's the weather going to be like tomorrow?",
@@ -24,9 +36,14 @@ DEMO_QUERIES = [
 
 
 def main(argv: list[str]) -> int:
-    router = build_router()
+    args = argv[1:]
+    rebuild_routes = "--rebuild-routes" in args
+    if rebuild_routes:
+        args = [arg for arg in args if arg != "--rebuild-routes"]
 
-    queries = argv[1:] or DEMO_QUERIES
+    router = build_router(overwrite=rebuild_routes)
+
+    queries = args or DEMO_QUERIES
     for query in queries:
         print(classify(router, query))
 

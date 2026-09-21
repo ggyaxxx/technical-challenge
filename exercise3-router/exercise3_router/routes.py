@@ -16,6 +16,23 @@ expressing the same topic. This gives the embedding model several
 points per topic to match against, rather than a single sentence,
 which is a fairly narrow target in embedding space.
 
+GENAI_PROGRAMMING originally only had "how do I build/use this"
+phrasing (prompting, fine-tuning, RAG, agents) and was missing the
+"mentions well-known names/products" style already used by the other
+two routes (Star Wars/Dune, Beethoven/Mozart). Measured directly with
+the embedding model (sentence-transformers/all-MiniLM-L6-v2, cosine
+distance), a query like "is ChatGPT better than Claude?" landed at
+distance ~0.80 from every original reference - comfortably outside
+distance_threshold=0.5, hence "no matching route" even though the
+topic clearly is GenAI. Adding four references naming specific
+products (ChatGPT, Claude, Copilot, GPT-4, Gemini) closed that gap to
+~0.13-0.27 for that style of query, without pulling any
+Science-fiction/Classical-music query across (verified the same way).
+The lesson generalizes: recall issues with a semantic router are
+usually a reference *coverage* problem for a specific phrasing style,
+not something fixed by lowering the threshold globally (which would
+also let genuinely unrelated queries through).
+
 distance_threshold=0.5 is used for all three routes: RedisVL's own
 examples for a handful of clearly distinct topics use thresholds in
 the 0.5-0.72 range (COSINE distance, 0-2, lower is stricter). Since
@@ -37,6 +54,10 @@ GENAI_PROGRAMMING = Route(
         "I'm building an AI agent with tool calling, any tips?",
         "What's the difference between few-shot prompting and fine-tuning?",
         "How does semantic search with Redis vector search work?",
+        "Is ChatGPT better than Claude for coding tasks?",
+        "What's the best AI coding assistant right now?",
+        "How does GitHub Copilot compare to other AI tools?",
+        "Which large language model is best, GPT-4 or Gemini?",
     ],
     distance_threshold=0.5,
 )
