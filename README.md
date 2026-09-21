@@ -15,3 +15,41 @@ Each exercise directory's README follows the same structure: relevant
 theory/concepts first, then the design rationale, then build/test/run
 instructions with the actual database endpoints used against this lab
 environment's Redis Enterprise cluster.
+
+## Running each exercise
+
+Minimal commands to build and run each one; see each exercise's own
+README for environment variables, tests, and troubleshooting.
+
+### 1 — Building and Synchronizing Redis Databases
+
+```bash
+cd exercise1-sync
+mvn -q package
+java -jar target/quarkus-app/quarkus-run.jar
+```
+
+### 2 — Working with Redis REST API
+
+```bash
+cd exercise2-rest
+mvn -q package
+CLUSTER_ADMIN_EMAIL=admin@rl.org CLUSTER_ADMIN_PASSWORD=<cluster-admin-password> \
+java -jar target/quarkus-app/quarkus-run.jar
+```
+
+Add `--no-delete-db` at the end to keep the created database around for
+manual inspection instead of deleting it at the end of the run.
+
+### 3 — Working with Semantic Routers
+
+```bash
+cd exercise3-router
+python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
+export REDIS_URL="redis://<host>:<port>"
+python -m exercise3_router.main
+```
+
+A specific query can be passed as an argument instead of running the
+built-in demo queries, e.g. `python -m exercise3_router.main "What's a
+good book about time travel?"`.
